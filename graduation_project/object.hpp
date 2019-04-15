@@ -8,6 +8,7 @@ public:
 	glm::vec3 origin;
 	std::vector<Mass> mass;
 	std::vector<Spring> spring;
+	std::vector<int> EBO;
 	object(glm::vec3);
 	void sample(int slice, float step);
 
@@ -41,6 +42,8 @@ void object::sample(int slice,float step) {
 
 			mass.push_back(Mass(origin + (x+y+z) * step));
 			spring.push_back(Spring(&mass.back(), &Mass(origin), 1));
+			spring.push_back(Spring(&mass[mass.size()-3], &Mass(mass[mass.size()-6]), 1));
+
 		}
 			
 	}
