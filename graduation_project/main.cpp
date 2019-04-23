@@ -31,100 +31,48 @@ bool firstMouse = true;
 // timing
 float deltaTime = 0.0f;	// time between current frame and last frame
 float lastFrame = 0.0f;
-float vertices[] = {
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,	//0
-         0.5f, -0.5f, -0.5f,  1.0f, 0.0f,	//1
-         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,	//2
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,	//3
 
-											//
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,	//4
-         0.5f, -0.5f,  0.5f,  1.0f, 0.0f,	//5
-         0.5f,  0.5f,  0.5f,  1.0f, 1.0f,	//6
-        -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,	//7
-
-};
-
-
-Mass mass[] = {
-	Mass(glm::vec3(-0.5f, -0.5f, -0.5f)),
-	Mass(glm::vec3(0.5f, -0.5f, -0.5f)),
-	Mass(glm::vec3(0.5f,  0.5f, -0.5f)),
-	Mass(glm::vec3(-0.5f,  0.5f, -0.5f)),
-	Mass(glm::vec3(-0.5f, -0.5f,  0.5f)),
-	Mass(glm::vec3(0.5f, -0.5f,  0.5f)),
-	Mass(glm::vec3(0.5f,  0.5f,  0.5f)),
-	Mass(glm::vec3(-0.5f,  0.5f,  0.5f))
-};
-Spring springs[] = {
-	//edge springs
-	Spring(&mass[0],&mass[1],1),
-	Spring(&mass[1],&mass[2],1),
-	Spring(&mass[2],&mass[3],1),
-	Spring(&mass[3],&mass[0],1),
-							  
-	Spring(&mass[4],&mass[5],1),
-	Spring(&mass[5],&mass[6],1),
-	Spring(&mass[6],&mass[7],1),
-	Spring(&mass[7],&mass[4],1),
-							  
-	Spring(&mass[0],&mass[4],1),
-	Spring(&mass[1],&mass[5],1),
-	Spring(&mass[2],&mass[6],1),
-	Spring(&mass[3],&mass[7],1),
-	
-	//face springs
-	Spring(&mass[0],&mass[2],1),
-	Spring(&mass[1],&mass[3],1),
-
-	Spring(&mass[2],&mass[7],1),
-	Spring(&mass[3],&mass[6],1),
-
-	Spring(&mass[3],&mass[4],1),
-	Spring(&mass[0],&mass[7],1),
-
-	Spring(&mass[1],&mass[4],1),
-	Spring(&mass[0],&mass[5],1),
-
-	Spring(&mass[4],&mass[6],1),
-	Spring(&mass[5],&mass[7],1),
-
-	Spring(&mass[1],&mass[6],1),
-	Spring(&mass[2],&mass[5],1),
-	//inner springs
-	Spring(&mass[0],&mass[6],1),
-	Spring(&mass[1],&mass[7],1),
-	Spring(&mass[3],&mass[5],1),
-	Spring(&mass[2],&mass[5],1),
-
-};
-
-void update()
-{
-	if (start_simulate) {
-		for (auto i : springs) {
-				i.update();
-			}
-	}
-	
-	for (int i = 0; i < 8;i++) {
-		mass[i].update(1e-2);
-		auto temp = mass[i].getPosition();
-		vertices[5 * i] = temp.x;
-		vertices[5 * i+1] = temp.y;
-		vertices[5 * i+2] = temp.z;
-		mass[i].setForce(glm::vec3(0, 0, 0));
+void falling(Mass* mass, float mu, float groundHeight) {
+	for (int i = 0; i < 8; i++) {
+		if (mass[i].getPosition().y <= groundHeight) {
+			mass[i].setPosition(glm::vec3(mass[i].getPosition().x, groundHeight, mass[i].getPosition().z));
+			auto downForce = mass[i].getForce().y;
+			mass[i].addForce(glm::vec3(0.f, -downForce, 0.f));
+			auto direction = glm::vec3(mass[i].getForce().x, 0.f, mass[i].getForce().z);
+			auto friction = downForce * mu * (-direction);
+			mass[i].addForce(friction);
+			//mass[i].setForce(glm::vec3(0.f, 0.f, 0.f));
+		}
 	}
 }
 
+object instance(glm::vec3(0.f,0.f,0.f));
 
 int main()
 {
 	//load object
-	object instance(glm::vec3(0.f,0.f,0.f));
-	instance.sample(2, 0.25);
+	
+	int slice = 1;
+	instance.sample(slice+1,2);
 	auto mass = instance.mass;
+
+	instance.getMesh();
+	auto mesh = instance.mesh;
+	instance.getEBO();
+	auto index = instance.EBO;
+	instance.generateSpring();
 	auto spring = instance.spring;
+	std::vector<glm::vec3> lines;
+	for (auto i : spring) {
+		lines.push_back(i.node_a->getPosition());
+		lines.push_back(i.node_b->getPosition());
+		std::cout << i.node_a->getPosition().x << " " << i.node_a->getPosition().y << " " << i.node_a->getPosition().z << std::endl;
+		std::cout << i.node_b->getPosition().x << " " << i.node_b->getPosition().y << " " << i.node_b->getPosition().z << std::endl;
+		std::cout << std::endl;
+	}
+
+	int count = 0;
+
 	// glfw: initialize and configure
 	// ------------------------------
 	glfwInit();
@@ -165,44 +113,33 @@ int main()
 
 	// build and compile our shader zprogram
 	// ------------------------------------
-	Shader ourShader("7.4.camera.vs", "7.4.camera.fs");
+	Shader ourShader("7.4.camera.vert", "7.4.camera.frag");
 
 	// set up vertex data (and buffer(s)) and configure vertex attributes
 	// ------------------------------------------------------------------
-	unsigned int indices[] = {
-		0,1,2,
-		2,3,0,
-		4,5,6,
-		6,7,4,
-		1,0,4,
-		4,5,1,
-		1,2,6,
-		6,5,1,
-		2,3,7,
-		7,6,2,
-		3,0,4,
-		4,7,3,
-	};
-	
-	unsigned int VBO, VAO,EBO;
+
+	unsigned int VBO[2], VAO,EBO;
 	glGenVertexArrays(1, &VAO);
-	glGenBuffers(1, &VBO);
+	glGenBuffers(2, VBO);
 	glGenBuffers(1, &EBO);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices),indices,GL_STATIC_DRAW);
+
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, index.size()*sizeof(index),&index[0],GL_STREAM_DRAW);
 
 	glBindVertexArray(VAO);
 
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[0]);
+	glBufferData(GL_ARRAY_BUFFER, mesh.size() * sizeof(mesh),&mesh[0], GL_STREAM_DRAW);
 	// position attribute
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
 	glEnableVertexAttribArray(0);
 	// texture coord attribute
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
 	glEnableVertexAttribArray(1);
-
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
+	glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(lines), &lines[0], GL_STREAM_DRAW);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+	glEnableVertexAttribArray(0);
 
 	// load and create a texture 
 	// -------------------------
@@ -267,10 +204,11 @@ int main()
 	while (!glfwWindowShouldClose(window))
 	{
 		
-		update();
-		
-		glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+		instance.update(5e-5);
+		mesh = instance.mesh;
 
+		
+		glBufferSubData(GL_ARRAY_BUFFER,0,sizeof(mesh[0])*mesh.size(), &mesh[0]);
 		// per-frame time logic
 		// --------------------
 		float currentFrame = glfwGetTime();
@@ -309,12 +247,13 @@ int main()
 		glm::mat4 model = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
 
 		float angle = 20.0f;
-		model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
 		ourShader.setMat4("model", model);
 
-		//glDrawArrays(GL_TRIANGLES, 0, 36);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-		glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+		//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+		//glDrawElements(GL_TRIANGLES, slice*slice*2*6*3, GL_UNSIGNED_INT, 0);
+		glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
+		glDrawArrays(GL_LINES,0,lines.size());
+
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------
@@ -325,7 +264,7 @@ int main()
 	// optional: de-allocate all resources once they've outlived their purpose:
 	// ------------------------------------------------------------------------
 	glDeleteVertexArrays(1, &VAO);
-	glDeleteBuffers(1, &VBO);
+	glDeleteBuffers(2, VBO);
 
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
@@ -350,32 +289,14 @@ void processInput(GLFWwindow *window)
 		camera.ProcessKeyboard(RIGHT, deltaTime);
 	if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
 		start_simulate = !start_simulate;
-		
 	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
-		for (int i = 0; i < 4; i++) {
-		mass[i].setPosition(mass[i].getPosition() + glm::vec3(0.f, 0.f, 0.001f));
-		}
+		instance.mass[0][0][0].setPosition(instance.mass[0][0][0].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
+		instance.mass[0][0][1].setPosition(instance.mass[0][0][1].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
+		instance.mass[0][1][0].setPosition(instance.mass[0][1][0].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
+		instance.mass[0][1][1].setPosition(instance.mass[0][1][1].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
 
 	}
-	if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
-		for (int i : {2}) {
-			mass[i].setPosition(mass[i].getPosition() + glm::vec3(0.f, 0.001f,0.f ));
-		}
 
-	}
-	if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
-		for (int i : {4,5,6,7}) {
-			mass[i].setPosition(mass[i].getPosition() + glm::vec3(0.001f,0.f ,0.f ));
-		}
-	}
-	if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS) {
-		glm::vec3 direction[] = { glm::vec3(0.001f, 0.f, 0.f) ,glm::vec3(0.f, 0.001f, 0.f) ,glm::vec3(-0.001f, 0.f, 0.f) ,glm::vec3(0.f, -0.001f, 0.f) };
-		int index = 0;
-		for (int i : {4, 5, 6, 7}) {
-			mass[i].setPosition(mass[i].getPosition() + direction[index]);
-			index++;
-		}
-	}
 
 }
 

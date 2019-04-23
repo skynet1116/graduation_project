@@ -6,12 +6,15 @@ private:
 	glm::vec3 position;
 	glm::vec3 vel;
 	glm::vec3 force;
-	float dampingRatio=5e-3;
+	float dampingRatio=0.f;
 public:
 	Mass( glm::vec3 pos);
 	~Mass();
 	void setPosition(glm::vec3 newPosition);
 	glm::vec3 getPosition();
+	float getMass();
+	glm::vec3 getForce();
+	glm::vec3 getVel();
 	void addForce(glm::vec3 f);
 
 	void setForce(glm::vec3 f);
@@ -34,7 +37,15 @@ void Mass::setPosition(glm::vec3 newPosition) {
 glm::vec3 Mass::getPosition() {
 	return position;
 }
-
+float Mass::getMass() {
+	return m;
+}
+glm::vec3 Mass::getForce() {
+	return force;
+}
+glm::vec3 Mass::getVel() {
+	return vel;
+}
 
 void Mass::addForce(glm::vec3 f) {
 	force += f;
@@ -45,7 +56,7 @@ void Mass::setForce(glm::vec3 f) {
 
 void Mass::update(float dt) {
 	auto dampingForce = dampingRatio * vel;
-	vel -= dampingForce;
+	force -= dampingForce;
 	glm::vec3 acc = force / m;
 	vel += acc * dt;
 	position += vel * dt;

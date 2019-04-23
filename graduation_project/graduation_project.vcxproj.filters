@@ -46,10 +46,10 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="7.4.camera.fs">
+    <None Include="7.4.camera.frag">
       <Filter>源文件</Filter>
     </None>
-    <None Include="7.4.camera.vs">
+    <None Include="7.4.camera.vert">
       <Filter>源文件</Filter>
     </None>
   </ItemGroup>
