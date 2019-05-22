@@ -9,10 +9,87 @@
 #include "camera.hpp"
 
 #include <iostream>
+#include <chrono>
 #include "mass.hpp"
 #include "spring.hpp"
 #include "object.hpp"
-bool start_simulate = false;
+unsigned int loadCubemap(std::vector<std::string> faces)
+{
+	unsigned int textureID;
+	glGenTextures(1, &textureID);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+	int width, height, nrComponents;
+	for (unsigned int i = 0; i < faces.size(); i++)
+	{
+		unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrComponents, 0);
+		if (data)
+		{
+			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+			stbi_image_free(data);
+		}
+		else
+		{
+			std::cout << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
+			stbi_image_free(data);
+		}
+	}
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+	return textureID;
+}
+
+auto timer_start = std::chrono::system_clock::now();
+int frame_count = 0;
+float skyboxVertices[] = {
+	// positions          
+	-1.0f,  1.0f, -1.0f,
+	-1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+	 1.0f,  1.0f, -1.0f,
+	-1.0f,  1.0f, -1.0f,
+
+	-1.0f, -1.0f,  1.0f,
+	-1.0f, -1.0f, -1.0f,
+	-1.0f,  1.0f, -1.0f,
+	-1.0f,  1.0f, -1.0f,
+	-1.0f,  1.0f,  1.0f,
+	-1.0f, -1.0f,  1.0f,
+
+	 1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+
+	-1.0f, -1.0f,  1.0f,
+	-1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f, -1.0f,  1.0f,
+	-1.0f, -1.0f,  1.0f,
+
+	-1.0f,  1.0f, -1.0f,
+	 1.0f,  1.0f, -1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	-1.0f,  1.0f,  1.0f,
+	-1.0f,  1.0f, -1.0f,
+
+	-1.0f, -1.0f, -1.0f,
+	-1.0f, -1.0f,  1.0f,
+	 1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+	-1.0f, -1.0f,  1.0f,
+	 1.0f, -1.0f,  1.0f
+};
+bool spring_mode = true,start_simulate=false;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -32,43 +109,58 @@ bool firstMouse = true;
 float deltaTime = 0.0f;	// time between current frame and last frame
 float lastFrame = 0.0f;
 
-void falling(Mass* mass, float mu, float groundHeight) {
-	for (int i = 0; i < 8; i++) {
-		if (mass[i].getPosition().y <= groundHeight) {
-			mass[i].setPosition(glm::vec3(mass[i].getPosition().x, groundHeight, mass[i].getPosition().z));
-			auto downForce = mass[i].getForce().y;
-			mass[i].addForce(glm::vec3(0.f, -downForce, 0.f));
-			auto direction = glm::vec3(mass[i].getForce().x, 0.f, mass[i].getForce().z);
-			auto friction = downForce * mu * (-direction);
-			mass[i].addForce(friction);
-			//mass[i].setForce(glm::vec3(0.f, 0.f, 0.f));
-		}
+
+std::vector<glm::vec3> lines;
+object instance(glm::vec3(0.f,1.f,0.f));
+int slice =5;
+float step = 1.f / slice;
+void getSprings(object o) {
+	lines = {};
+	for (auto i : o.spring) {
+		lines.push_back(i.node_a->getPosition());
+		lines.push_back(i.node_b->getPosition());
 	}
 }
-
-object instance(glm::vec3(0.f,0.f,0.f));
-
 int main()
 {
-	//load object
-	
-	int slice = 1;
-	instance.sample(slice+1,2);
-	auto mass = instance.mass;
 
+	//load skybox textures
+
+	std::vector<std::string> faces
+	{
+		"resources/textures/skybox/right.jpg",
+		"resources/textures/skybox/left.jpg",
+		"resources/textures/skybox/top.jpg",
+		"resources/textures/skybox/bottom.jpg",
+		"resources/textures/skybox/front.jpg",
+		"resources/textures/skybox/back.jpg",
+	};
+
+	//load object
+
+	instance.sample(slice+1,step);
+	instance.getSurface();
+	auto mass = instance.mass;
 	instance.getMesh();
 	auto mesh = instance.mesh;
 	instance.getEBO();
 	auto index = instance.EBO;
 	instance.generateSpring();
 	auto spring = instance.spring;
-	std::vector<glm::vec3> lines;
-	for (auto i : spring) {
-		lines.push_back(i.node_a->getPosition());
-		lines.push_back(i.node_b->getPosition());
-		std::cout << i.node_a->getPosition().x << " " << i.node_a->getPosition().y << " " << i.node_a->getPosition().z << std::endl;
-		std::cout << i.node_b->getPosition().x << " " << i.node_b->getPosition().y << " " << i.node_b->getPosition().z << std::endl;
-		std::cout << std::endl;
+	getSprings(instance);
+	std::vector<glm::vec2> texture;
+	int x = 0, y = 0;
+	for (auto i : instance.mesh) {
+		texture.push_back(glm::vec2(x * step, y * step));
+		x++;
+		if (x == slice + 1) {
+			x = 0;
+			y++;
+		}
+		if (y == slice + 1) {
+			x = 0;
+			y = 0;
+		}
 	}
 
 	int count = 0;
@@ -110,37 +202,71 @@ int main()
 	// configure global opengl state
 	// -----------------------------
 	glEnable(GL_DEPTH_TEST);
-
+	//glDisable(GL_DEPTH_TEST);
 	// build and compile our shader zprogram
 	// ------------------------------------
-	Shader ourShader("7.4.camera.vert", "7.4.camera.frag");
+	Shader cubeShader("cube.vert", "cube.frag");
+	Shader skyboxShader("skybox.vert", "skybox.frag");
 
 	// set up vertex data (and buffer(s)) and configure vertex attributes
 	// ------------------------------------------------------------------
 
-	unsigned int VBO[2], VAO,EBO;
-	glGenVertexArrays(1, &VAO);
-	glGenBuffers(2, VBO);
+	unsigned int VBO[4], VAO[2],EBO;
+	glGenVertexArrays(2, VAO);
+	glGenBuffers(4, VBO);
 	glGenBuffers(1, &EBO);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, index.size()*sizeof(index),&index[0],GL_STREAM_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, index.size()*sizeof(GLfloat),&index[0],GL_STREAM_DRAW);
 
-	glBindVertexArray(VAO);
-
+	glBindVertexArray(VAO[0]);
+	//cube face
 	glBindBuffer(GL_ARRAY_BUFFER, VBO[0]);
 	glBufferData(GL_ARRAY_BUFFER, mesh.size() * sizeof(mesh),&mesh[0], GL_STREAM_DRAW);
 	// position attribute
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
 	glEnableVertexAttribArray(0);
-	// texture coord attribute
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-	glEnableVertexAttribArray(1);
+
 	glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
-	glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(lines), &lines[0], GL_STREAM_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(glm::vec3), &lines[0], GL_STREAM_DRAW);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
 	glEnableVertexAttribArray(0);
 
+	std::cout << glGetString(GL_VERSION) << std::endl;
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[2]);
+	glBufferData(GL_ARRAY_BUFFER, texture.size() * sizeof(glm::vec2), &texture[0], GL_STATIC_DRAW);
+	// texture attribute
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
+	glEnableVertexAttribArray(1);
+
+	std::vector<float> ground = {
+		-2.f,0.f,-2.f, 0.f,0.f,
+		-2.f,0.f, 2.f, 0.f,1.f,
+		 2.f,0.f,-2.f, 1.f,0.f,
+		
+		-2.f,0.f, 2.f, 0.f,1.f,
+		 2.f,0.f, 2.f, 1.f,1.f,
+		 2.f,0.f,-2.f, 1.f,0.f,
+	};
+	glBindVertexArray(VAO[1]);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[3]);
+	glBufferData(GL_ARRAY_BUFFER, ground.size() * sizeof(glm::vec3), &ground[0], GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)(3*sizeof(float)));
+	glEnableVertexAttribArray(1);
+	glBindVertexArray(0);
+
+	//skybox VAO
+	unsigned int skyboxVAO, skyboxVBO;
+	glGenVertexArrays(1, &skyboxVAO);
+	glGenBuffers(1, &skyboxVBO);
+	glBindVertexArray(skyboxVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	unsigned int cubemapTexture = loadCubemap(faces);
 	// load and create a texture 
 	// -------------------------
 	unsigned int texture1, texture2;
@@ -155,7 +281,7 @@ int main()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	// load image, create texture and generate mipmaps
-	int width, height, nrChannels;
+	int width,height,nrChannels;
 	stbi_set_flip_vertically_on_load(true); // tell stb_image.h to flip loaded texture's on the y-axis.
 	unsigned char *data = stbi_load("resources/textures/container.jpg", &width, &height, &nrChannels, 0);
 	if (data)
@@ -194,21 +320,24 @@ int main()
 
 	// tell opengl for each sampler to which texture unit it belongs to (only has to be done once)
 	// -------------------------------------------------------------------------------------------
-	ourShader.use();
-	ourShader.setInt("texture1", 0);
-	ourShader.setInt("texture2", 1);
-
+	cubeShader.use();
+	cubeShader.setInt("texture1", 0);
+	cubeShader.setInt("texture2", 1);
+	skyboxShader.use();
+	skyboxShader.setInt("skybox", 0);
 
 	// render loop
 	// -----------
-	while (!glfwWindowShouldClose(window))
-	{
-		
-		instance.update(5e-5);
-		mesh = instance.mesh;
 
-		
-		glBufferSubData(GL_ARRAY_BUFFER,0,sizeof(mesh[0])*mesh.size(), &mesh[0]);
+
+	
+	while (!glfwWindowShouldClose(window))
+	{	
+		frame_count++;
+		if (start_simulate)
+		instance.update(1e-2);
+		instance.getMesh();
+		mesh = instance.mesh;
 		// per-frame time logic
 		// --------------------
 		float currentFrame = glfwGetTime();
@@ -222,7 +351,9 @@ int main()
 		// render
 		// ------
 		glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+		//glClearColor(1.f, 1.f, 1.f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		
 
 		// bind textures on corresponding texture units
 		glActiveTexture(GL_TEXTURE0);
@@ -231,29 +362,52 @@ int main()
 		glBindTexture(GL_TEXTURE_2D, texture2);
 
 		// activate shader
-		ourShader.use();
+		cubeShader.use();
 
 		// pass projection matrix to shader (note that in this case it could change every frame)
 		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-		ourShader.setMat4("projection", projection);
+		cubeShader.setMat4("projection", projection);
 
 		// camera/view transformation
 		glm::mat4 view = camera.GetViewMatrix();
-		ourShader.setMat4("view", view);
+		cubeShader.setMat4("view", view);
 
 		// render boxes
-		glBindVertexArray(VAO);
 
 		glm::mat4 model = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
 
 		float angle = 20.0f;
-		ourShader.setMat4("model", model);
+		cubeShader.setMat4("model", model);
 
-		//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-		//glDrawElements(GL_TRIANGLES, slice*slice*2*6*3, GL_UNSIGNED_INT, 0);
-		glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
-		glDrawArrays(GL_LINES,0,lines.size());
+		glBindVertexArray(VAO[0]);
+		if (spring_mode) {
+			glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
+			getSprings(instance);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(lines[0])* lines.size(), &lines[0]);
+			glDrawArrays(GL_LINES,0,lines.size());
+		}
+		else {
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(mesh[0])* mesh.size(), &mesh[0]);
+			glDrawElements(GL_TRIANGLES, slice*slice*2*6*3, GL_UNSIGNED_INT, 0);
+		}
 
+		glBindVertexArray(VAO[1]);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		// draw skybox as last
+		glDepthFunc(GL_LEQUAL);  // change depth function so depth test passes when values are equal to depth buffer's content
+		skyboxShader.use();
+		view = glm::mat4(glm::mat3(camera.GetViewMatrix())); // remove translation from the view matrix
+		skyboxShader.setMat4("view", view);
+		skyboxShader.setMat4("projection", projection);
+		// skybox cube
+		glBindVertexArray(skyboxVAO);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+		glBindVertexArray(0);
+		glDepthFunc(GL_LESS); // set depth function back to default
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------
@@ -263,9 +417,9 @@ int main()
 
 	// optional: de-allocate all resources once they've outlived their purpose:
 	// ------------------------------------------------------------------------
-	glDeleteVertexArrays(1, &VAO);
-	glDeleteBuffers(2, VBO);
-
+	glDeleteVertexArrays(2, VAO);
+	glDeleteBuffers(3, VBO);
+	instance.getMesh();
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
 	glfwTerminate();
@@ -287,15 +441,47 @@ void processInput(GLFWwindow *window)
 		camera.ProcessKeyboard(LEFT, deltaTime);
 	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
 		camera.ProcessKeyboard(RIGHT, deltaTime);
-	if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-		start_simulate = !start_simulate;
-	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
-		instance.mass[0][0][0].setPosition(instance.mass[0][0][0].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
-		instance.mass[0][0][1].setPosition(instance.mass[0][0][1].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
-		instance.mass[0][1][0].setPosition(instance.mass[0][1][0].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
-		instance.mass[0][1][1].setPosition(instance.mass[0][1][1].getPosition() + glm::vec3(0.f, 3e-3f, 0.f));
 
+	if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+		instance = object(glm::vec3(0.f, 2.f, 0.f));
+		instance.sample(slice + 1, step);
+		instance.getSurface();
+		instance.getMesh();
+		instance.getEBO();
+		instance.generateSpring();
 	}
+	if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
+		spring_mode = !spring_mode;
+	}
+	if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+		frame_count = 0;
+		timer_start = std::chrono::system_clock::now();
+		start_simulate = !start_simulate;
+	}
+	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
+		for (int i = 0; i < slice + 1; i++) {
+			instance.surface[i]->addForce((float)(slice*slice*slice)*glm::vec3(0.f, 1.f, 0.f));
+		}
+	}
+	if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+		for (int i = 0; i < (slice + 1) * (slice + 1); i++) {
+			instance.surface[i]->addForce((float)(slice * slice * slice) * glm::vec3(0.f, 5e-2, 0.f));
+		}
+	}
+	if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
+		int i = slice ;
+		
+		instance.mass[0][i][0].addForce((float)(slice * slice * slice) * glm::vec3(5e-2,0.f , 0.f));
+		
+
+		
+	}
+	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+		auto timer_end = std::chrono::system_clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(timer_end - timer_start);
+		std::cout << "average time cost per frame: " << duration.count()/frame_count << "ms" << std::endl;
+	}
+
 
 
 }

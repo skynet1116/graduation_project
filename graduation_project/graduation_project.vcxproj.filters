@@ -46,10 +46,16 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="7.4.camera.frag">
+    <None Include="cube.frag">
       <Filter>源文件</Filter>
     </None>
-    <None Include="7.4.camera.vert">
+    <None Include="cube.vert">
+      <Filter>源文件</Filter>
+    </None>
+    <None Include="skybox.vert">
+      <Filter>源文件</Filter>
+    </None>
+    <None Include="skybox.frag">
       <Filter>源文件</Filter>
     </None>
   </ItemGroup>

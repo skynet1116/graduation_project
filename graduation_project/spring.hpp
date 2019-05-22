@@ -10,7 +10,7 @@ public:
 	float origin_length;
 	float current_length;
 	float k;
-	float dampingRatio=5e-2;
+	float dampingRatio=1.f;
 	Spring(Mass* a, Mass* b, float k);
 	void deformate(std::vector<glm::vec3>& Fa, std::vector<glm::vec3>& Fb);
 	void update();
@@ -46,14 +46,21 @@ void Spring::deformate(std::vector<glm::vec3>& Fa,std::vector<glm::vec3>& Fb){
 }
 void Spring::update() {
 	current_length = glm::length(node_a->getPosition() - node_b->getPosition());
-	glm::vec3 direction = node_a->getPosition() - node_b->getPosition();
 
-	auto deltaV_a = 0.5f * node_a->getVel() - 0.5f * node_b->getVel();
-	auto deltaV_b = 0.5f * node_b->getVel() - 0.5f * node_a->getVel();
+	glm::vec3 direction = node_a->getPosition() - node_b->getPosition();
+	auto deltaVel = node_a->getVel() - node_b->getVel();
+	deltaVel = glm::dot(deltaVel, direction)*direction/(glm::length(direction)* glm::length(direction));
+
+	auto deltaV_a = deltaVel;
+	auto deltaV_b = -deltaVel;
 	auto dampingForce_a = dampingRatio * deltaV_a;
 	auto dampingForce_b = dampingRatio * deltaV_b;
 
-	auto forceOut = k * (current_length-origin_length);
+	float coef = current_length / origin_length;
+	if (coef < 1.f) {
+		coef = origin_length / current_length;
+	}
+	auto forceOut = std::powf(k,coef) * (current_length-origin_length);
 	node_a->addForce(-forceOut*direction);
 	node_b->addForce(forceOut * direction);
 	if (glm::length(dampingForce_a)<=glm::length(forceOut * direction)) {
